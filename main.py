@@ -15,13 +15,36 @@ def home():
     return {
         "status": "TradeUp Bot Online",
         "mode": "SIMULATION",
-        "version": "1.3"
+        "version": "1.4"
     }
 
 @app.post("/webhook")
 async def webhook(data: Dict):
     now = datetime.now().isoformat()
 
+    action = data.get("action", "OPEN")
+
+    # CERRAR ÚLTIMA OPERACIÓN ABIERTA
+    if action == "CLOSE":
+        result = data.get("result", "PENDING")
+
+        for trade in reversed(trades):
+            if trade["status"] == "OPEN":
+                trade["status"] = "CLOSED"
+                trade["result"] = result
+                trade["closed_time"] = now
+                return {
+                    "success": True,
+                    "message": "OPERACIÓN CERRADA",
+                    "trade": trade
+                }
+
+        return {
+            "success": False,
+            "message": "NO HAY OPERACIONES ABIERTAS"
+        }
+
+    # ABRIR OPERACIÓN SIMULADA
     symbol = data.get("symbol", "MNQ")
     side = data.get("side", "")
     score = int(data.get("score", 0))
@@ -49,6 +72,7 @@ async def webhook(data: Dict):
         tp2 = 0
 
     trade = {
+        "id": len(trades) + 1,
         "time": now,
         "symbol": symbol,
         "side": side,
@@ -69,7 +93,6 @@ async def webhook(data: Dict):
     }
 
     trades.append(trade)
-    print("TRADEUP SIGNAL:", trade)
 
     return {
         "success": True,
@@ -88,12 +111,19 @@ def get_trades():
 @app.get("/stats")
 def stats():
     total = len(trades)
-    accepted = len([t for t in trades if t["accepted"]])
-    blocked = total - accepted
+    accepted = [t for t in trades if t["accepted"]]
+    closed = [t for t in accepted if t["status"] == "CLOSED"]
+    wins = [t for t in closed if t["result"] == "WIN"]
+    losses = [t for t in closed if t["result"] == "LOSS"]
+
+    win_rate = round((len(wins) / len(closed)) * 100, 2) if closed else 0
 
     return {
         "total_signals": total,
-        "accepted_trades": accepted,
-        "blocked_signals": blocked,
+        "accepted_trades": len(accepted),
+        "closed_trades": len(closed),
+        "wins": len(wins),
+        "losses": len(losses),
+        "win_rate": win_rate,
         "mode": "SIMULATION"
     }
