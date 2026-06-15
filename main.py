@@ -15,16 +15,71 @@ def home():
     return {
         "status": "TradeUp Bot Online",
         "mode": "SIMULATION",
-        "version": "1.5"
+        "version": "1.6"
     }
+
+def check_tp_sl(trade, current_price):
+    if trade["status"] != "OPEN":
+        return trade
+
+    side = trade["side"]
+
+    if side == "BUY":
+        if current_price >= trade["tp1"]:
+            trade["status"] = "CLOSED"
+            trade["result"] = "WIN"
+            trade["closed_price"] = current_price
+            trade["closed_time"] = datetime.now().isoformat()
+            trade["close_reason"] = "TP1_HIT"
+
+        elif current_price <= trade["sl"]:
+            trade["status"] = "CLOSED"
+            trade["result"] = "LOSS"
+            trade["closed_price"] = current_price
+            trade["closed_time"] = datetime.now().isoformat()
+            trade["close_reason"] = "SL_HIT"
+
+    if side == "SELL":
+        if current_price <= trade["tp1"]:
+            trade["status"] = "CLOSED"
+            trade["result"] = "WIN"
+            trade["closed_price"] = current_price
+            trade["closed_time"] = datetime.now().isoformat()
+            trade["close_reason"] = "TP1_HIT"
+
+        elif current_price >= trade["sl"]:
+            trade["status"] = "CLOSED"
+            trade["result"] = "LOSS"
+            trade["closed_price"] = current_price
+            trade["closed_time"] = datetime.now().isoformat()
+            trade["close_reason"] = "SL_HIT"
+
+    return trade
 
 @app.post("/webhook")
 async def webhook(data: Dict):
     now = datetime.now().isoformat()
-
     action = data.get("action", "OPEN")
 
-    # CERRAR ÚLTIMA OPERACIÓN ABIERTA
+    current_price = float(data.get("price", 0))
+
+    # MONITOREAR OPERACIONES ABIERTAS
+    if action == "UPDATE_PRICE":
+        updated = []
+
+        for trade in trades:
+            if trade["status"] == "OPEN" and trade["accepted"] == True:
+                updated_trade = check_tp_sl(trade, current_price)
+                updated.append(updated_trade)
+
+        return {
+            "success": True,
+            "message": "PRECIO ACTUALIZADO",
+            "price": current_price,
+            "updated": updated
+        }
+
+    # CIERRE MANUAL
     if action == "CLOSE":
         result = data.get("result", "PENDING")
 
@@ -33,6 +88,9 @@ async def webhook(data: Dict):
                 trade["status"] = "CLOSED"
                 trade["result"] = result
                 trade["closed_time"] = now
+                trade["closed_price"] = current_price
+                trade["close_reason"] = "MANUAL_CLOSE"
+
                 return {
                     "success": True,
                     "message": "OPERACIÓN CERRADA",
@@ -48,7 +106,7 @@ async def webhook(data: Dict):
     symbol = data.get("symbol", "MNQ")
     side = data.get("side", "")
     score = int(data.get("score", 0))
-    entry = float(data.get("price", 0))
+    entry = current_price
 
     h1 = data.get("h1", False)
     sweep = data.get("sweep", False)
@@ -66,7 +124,8 @@ async def webhook(data: Dict):
     accepted = (
         score >= 80 and
         side in ["BUY", "SELL"] and
-        not already_open
+        not already_open and
+        entry > 0
     )
 
     if side == "BUY":
@@ -109,7 +168,7 @@ async def webhook(data: Dict):
     return {
         "success": True,
         "accepted": accepted,
-        "message": "ENTRADA SIMULADA ABIERTA" if accepted else "SEÑAL BLOQUEADA O YA EXISTE OPERACIÓN ABIERTA",
+        "message": "ENTRADA SIMULADA ABIERTA" if accepted else "SEÑAL BLOQUEADA",
         "trade": trade
     }
 
