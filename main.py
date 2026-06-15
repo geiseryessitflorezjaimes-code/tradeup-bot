@@ -15,7 +15,7 @@ def home():
     return {
         "status": "TradeUp Bot Online",
         "mode": "SIMULATION",
-        "version": "1.4"
+        "version": "1.5"
     }
 
 @app.post("/webhook")
@@ -56,7 +56,18 @@ async def webhook(data: Dict):
     retest = data.get("retest", False)
     fvg = data.get("fvg", False)
 
-    accepted = score >= 80 and side in ["BUY", "SELL"]
+    already_open = any(
+        t["symbol"] == symbol and
+        t["status"] == "OPEN" and
+        t["accepted"] == True
+        for t in trades
+    )
+
+    accepted = (
+        score >= 80 and
+        side in ["BUY", "SELL"] and
+        not already_open
+    )
 
     if side == "BUY":
         sl = entry - SL_POINTS
@@ -87,6 +98,7 @@ async def webhook(data: Dict):
         "retest": retest,
         "fvg": fvg,
         "accepted": accepted,
+        "blocked_reason": "OPEN_TRADE_EXISTS" if already_open else None,
         "status": "OPEN" if accepted else "BLOCKED",
         "result": "PENDING",
         "mode": "SIMULATION"
@@ -97,7 +109,7 @@ async def webhook(data: Dict):
     return {
         "success": True,
         "accepted": accepted,
-        "message": "ENTRADA SIMULADA ABIERTA" if accepted else "SEÑAL BLOQUEADA",
+        "message": "ENTRADA SIMULADA ABIERTA" if accepted else "SEÑAL BLOQUEADA O YA EXISTE OPERACIÓN ABIERTA",
         "trade": trade
     }
 
@@ -108,11 +120,25 @@ def get_trades():
         "trades": trades
     }
 
+@app.get("/open_trades")
+def open_trades():
+    open_list = [
+        t for t in trades
+        if t["status"] == "OPEN" and t["accepted"] == True
+    ]
+
+    return {
+        "total_open": len(open_list),
+        "open_trades": open_list
+    }
+
 @app.get("/stats")
 def stats():
     total = len(trades)
     accepted = [t for t in trades if t["accepted"]]
+    blocked = [t for t in trades if not t["accepted"]]
     closed = [t for t in accepted if t["status"] == "CLOSED"]
+    open_trades_list = [t for t in accepted if t["status"] == "OPEN"]
     wins = [t for t in closed if t["result"] == "WIN"]
     losses = [t for t in closed if t["result"] == "LOSS"]
 
@@ -121,6 +147,8 @@ def stats():
     return {
         "total_signals": total,
         "accepted_trades": len(accepted),
+        "blocked_signals": len(blocked),
+        "open_trades": len(open_trades_list),
         "closed_trades": len(closed),
         "wins": len(wins),
         "losses": len(losses),
