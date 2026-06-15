@@ -11,7 +11,7 @@ def home():
     return {
         "status": "TradeUp Bot Online",
         "mode": "SIMULATION",
-        "version": "1.1"
+        "version": "1.2"
     }
 
 @app.post("/webhook")
@@ -28,10 +28,9 @@ async def webhook(data: Dict):
     retest = data.get("retest", False)
     fvg = data.get("fvg", False)
 
-   accepted = (
-    score >= 80 and
-    side in ["BUY", "SELL"]
-)
+    accepted = (
+        score >= 80 and
+        side in ["BUY", "SELL"]
     )
 
     trade = {
@@ -49,6 +48,8 @@ async def webhook(data: Dict):
     }
 
     trades.append(trade)
+
+    print("ALERTA RECIBIDA:", trade)
 
     return {
         "success": True,
