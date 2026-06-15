@@ -28,10 +28,10 @@ async def webhook(data: Dict):
     retest = data.get("retest", False)
     fvg = data.get("fvg", False)
 
-    accepted = (
-        score >= 80 and
-        side in ["BUY", "SELL"] and
-        h1 and sweep and bos and retest and fvg
+   accepted = (
+    score >= 80 and
+    side in ["BUY", "SELL"]
+)
     )
 
     trade = {
