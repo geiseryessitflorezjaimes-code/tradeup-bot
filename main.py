@@ -9,13 +9,14 @@ trades = []
 SL_POINTS = 25
 TP1_POINTS = 20
 TP2_POINTS = 40
+MIN_SCORE = 80
 
 @app.get("/")
 def home():
     return {
         "status": "TradeUp Bot Online",
         "mode": "SIMULATION",
-        "version": "1.8",
+        "version": "1.9",
         "dashboard": "/dashboard"
     }
 
@@ -94,7 +95,7 @@ async def webhook(data: Dict):
         for t in trades
     )
 
-    accepted = score >= 80 and side in ["BUY", "SELL"] and not already_open and entry > 0
+    accepted = score >= MIN_SCORE and side in ["BUY", "SELL"] and not already_open and entry > 0
 
     if side == "BUY":
         sl = entry - SL_POINTS
@@ -202,6 +203,19 @@ def dashboard():
     tp2 = last_trade["tp2"] if last_trade else 0
     side = last_trade["side"] if last_trade else "WAIT"
     score = last_trade["score"] if last_trade else 0
+    trade_status = last_trade["result"] if last_trade else "WAIT"
+    trade_result = last_trade["result"] if last_trade else "WAIT"
+
+    risk_pts = abs(entry - sl) if entry and sl else 0
+    tp1_pts = abs(tp1 - entry) if entry and tp1 else 0
+    tp2_pts = abs(tp2 - entry) if entry and tp2 else 0
+
+    status_bg = (
+        "#22c55e" if trade_result == "WIN"
+        else "#ef4444" if trade_result == "LOSS"
+        else "#f59e0b" if last_trade and last_trade["status"] == "OPEN"
+        else "#64748b"
+    )
 
     html = f"""
     <!DOCTYPE html>
@@ -272,10 +286,27 @@ def dashboard():
                 padding:18px;
                 border-radius:12px;
             }}
+            .box {{
+                background:#0f172a;
+                padding:12px;
+                border-radius:10px;
+                margin-bottom:15px;
+                border:1px solid #334155;
+            }}
+            .box h3 {{
+                margin-top:0;
+                color:#38bdf8;
+            }}
             .score {{
                 font-size:24px;
                 font-weight:bold;
                 color:#22c55e;
+            }}
+            .badge {{
+                padding:6px 10px;
+                border-radius:6px;
+                color:white;
+                font-weight:bold;
             }}
             table {{
                 width:calc(100% - 40px);
@@ -308,7 +339,7 @@ def dashboard():
     <body>
         <div class="header">
             <div class="title">TRADEUP DASHBOARD PRO</div>
-            <div class="mode">SIMULATION v1.8</div>
+            <div class="mode">SIMULATION v1.9</div>
         </div>
 
         <div class="cards">
@@ -325,14 +356,34 @@ def dashboard():
             <div id="chart"></div>
 
             <div class="panel">
+                <div class="box">
+                    <h3>BOT STATUS</h3>
+                    <p>🟢 <b>BOT ONLINE</b></p>
+                    <p>📡 <b>WEBHOOK:</b> ACTIVO</p>
+                    <p>🎯 <b>SCORE MÍNIMO:</b> {MIN_SCORE}</p>
+                    <p>📈 <b>ÚLTIMA SEÑAL:</b> {side}</p>
+                </div>
+
                 <h2>Última operación</h2>
                 <p><b>Dirección:</b> {side}</p>
                 <p><b>Trade Score:</b> <span class="score">{score}/100</span></p>
+                <p><b>Trade Status:</b> <span class="badge" style="background:{status_bg};">{trade_status}</span></p>
                 <p><b>Entry:</b> {entry}</p>
                 <p><b>SL:</b> {sl}</p>
                 <p><b>TP1:</b> {tp1}</p>
                 <p><b>TP2:</b> {tp2}</p>
+
                 <hr>
+
+                <div class="box">
+                    <h3>RISK / REWARD</h3>
+                    <p>⚠️ Riesgo: <b>{risk_pts}</b> pts</p>
+                    <p>🎯 TP1: <b>{tp1_pts}</b> pts</p>
+                    <p>🚀 TP2: <b>{tp2_pts}</b> pts</p>
+                </div>
+
+                <hr>
+
                 <p>H1: {'✅' if last_trade and last_trade['h1'] else '❌'}</p>
                 <p>Sweep: {'✅' if last_trade and last_trade['sweep'] else '❌'}</p>
                 <p>BOS: {'✅' if last_trade and last_trade['bos'] else '❌'}</p>
@@ -432,7 +483,7 @@ def dashboard():
 
             setTimeout(() => {{
                 window.location.reload();
-            }}, 5000);
+            }}, 3000);
         </script>
     </body>
     </html>
