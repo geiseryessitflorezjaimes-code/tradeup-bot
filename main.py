@@ -4,7 +4,6 @@ from typing import Dict
 from datetime import datetime
 
 app = FastAPI()
-
 trades = []
 
 SL_POINTS = 25
@@ -16,7 +15,7 @@ def home():
     return {
         "status": "TradeUp Bot Online",
         "mode": "SIMULATION",
-        "version": "1.7",
+        "version": "1.8",
         "dashboard": "/dashboard"
     }
 
@@ -65,13 +64,7 @@ async def webhook(data: Dict):
         for trade in trades:
             if trade["status"] == "OPEN" and trade["accepted"] == True:
                 updated.append(check_tp_sl(trade, current_price))
-
-        return {
-            "success": True,
-            "message": "PRECIO ACTUALIZADO",
-            "price": current_price,
-            "updated": updated
-        }
+        return {"success": True, "message": "PRECIO ACTUALIZADO", "price": current_price, "updated": updated}
 
     if action == "CLOSE":
         result = data.get("result", "PENDING")
@@ -194,6 +187,7 @@ def dashboard():
             <td>{t['entry']}</td>
             <td>{t['sl']}</td>
             <td>{t['tp1']}</td>
+            <td>{t['tp2']}</td>
             <td>{t['status']}</td>
             <td style="color:{status_color};font-weight:bold;">{t['result']}</td>
         </tr>
@@ -207,12 +201,13 @@ def dashboard():
     tp1 = last_trade["tp1"] if last_trade else 0
     tp2 = last_trade["tp2"] if last_trade else 0
     side = last_trade["side"] if last_trade else "WAIT"
+    score = last_trade["score"] if last_trade else 0
 
     html = f"""
     <!DOCTYPE html>
     <html>
     <head>
-        <title>TradeUp Dashboard</title>
+        <title>TradeUp Dashboard Pro</title>
         <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
         <style>
             body {{
@@ -237,6 +232,7 @@ def dashboard():
                 padding:8px 14px;
                 border-radius:8px;
                 color:#38bdf8;
+                font-weight:bold;
             }}
             .cards {{
                 display:grid;
@@ -276,6 +272,11 @@ def dashboard():
                 padding:18px;
                 border-radius:12px;
             }}
+            .score {{
+                font-size:24px;
+                font-weight:bold;
+                color:#22c55e;
+            }}
             table {{
                 width:calc(100% - 40px);
                 margin:20px;
@@ -302,18 +303,12 @@ def dashboard():
                 color:#ef4444;
                 font-weight:bold;
             }}
-            .check {{
-                color:#22c55e;
-            }}
-            .no {{
-                color:#ef4444;
-            }}
         </style>
     </head>
     <body>
         <div class="header">
-            <div class="title">TRADEUP DASHBOARD</div>
-            <div class="mode">SIMULATION v1.7</div>
+            <div class="title">TRADEUP DASHBOARD PRO</div>
+            <div class="mode">SIMULATION v1.8</div>
         </div>
 
         <div class="cards">
@@ -332,23 +327,24 @@ def dashboard():
             <div class="panel">
                 <h2>Última operación</h2>
                 <p><b>Dirección:</b> {side}</p>
+                <p><b>Trade Score:</b> <span class="score">{score}/100</span></p>
                 <p><b>Entry:</b> {entry}</p>
                 <p><b>SL:</b> {sl}</p>
                 <p><b>TP1:</b> {tp1}</p>
                 <p><b>TP2:</b> {tp2}</p>
                 <hr>
-                <p>H1: <span class="check">{'✅' if last_trade and last_trade['h1'] else '❌'}</span></p>
-                <p>Sweep: <span class="check">{'✅' if last_trade and last_trade['sweep'] else '❌'}</span></p>
-                <p>BOS: <span class="check">{'✅' if last_trade and last_trade['bos'] else '❌'}</span></p>
-                <p>Retest: <span class="check">{'✅' if last_trade and last_trade['retest'] else '❌'}</span></p>
-                <p>FVG: <span class="check">{'✅' if last_trade and last_trade['fvg'] else '❌'}</span></p>
+                <p>H1: {'✅' if last_trade and last_trade['h1'] else '❌'}</p>
+                <p>Sweep: {'✅' if last_trade and last_trade['sweep'] else '❌'}</p>
+                <p>BOS: {'✅' if last_trade and last_trade['bos'] else '❌'}</p>
+                <p>Retest: {'✅' if last_trade and last_trade['retest'] else '❌'}</p>
+                <p>FVG: {'✅' if last_trade and last_trade['fvg'] else '❌'}</p>
             </div>
         </div>
 
         <table>
             <thead>
                 <tr>
-                    <th>ID</th><th>Symbol</th><th>Side</th><th>Score</th><th>Entry</th><th>SL</th><th>TP1</th><th>Status</th><th>Result</th>
+                    <th>ID</th><th>Symbol</th><th>Side</th><th>Score</th><th>Entry</th><th>SL</th><th>TP1</th><th>TP2</th><th>Status</th><th>Result</th>
                 </tr>
             </thead>
             <tbody>
@@ -357,6 +353,12 @@ def dashboard():
         </table>
 
         <script>
+            const tradeSide = "{side}";
+            const entryPrice = Number({entry});
+            const slPrice = Number({sl});
+            const tp1Price = Number({tp1});
+            const tp2Price = Number({tp2});
+
             const chart = LightweightCharts.createChart(document.getElementById('chart'), {{
                 layout: {{
                     background: {{ color: '#020617' }},
@@ -371,61 +373,66 @@ def dashboard():
             }});
 
             const lineSeries = chart.addLineSeries({{
-                color: side === 'BUY' ? '#22c55e' : '#ef4444',
-                lineWidth: 2
+                color: tradeSide === 'BUY' ? '#22c55e' : '#ef4444',
+                lineWidth: 3
             }});
 
-            const base = {entry if entry else 100};
-            const data = [
-                {{ time: 1, value: base - 20 }},
-                {{ time: 2, value: base - 10 }},
-                {{ time: 3, value: base }},
-                {{ time: 4, value: base + 8 }},
-                {{ time: 5, value: base + 15 }},
-                {{ time: 6, value: base + 22 }}
-            ];
+            let data = [];
+
+            if (tradeSide === "SELL") {{
+                data = [
+                    {{ time: 1, value: entryPrice + 20 }},
+                    {{ time: 2, value: entryPrice + 10 }},
+                    {{ time: 3, value: entryPrice }},
+                    {{ time: 4, value: entryPrice - 10 }},
+                    {{ time: 5, value: tp1Price }},
+                    {{ time: 6, value: tp2Price }}
+                ];
+            }} else if (tradeSide === "BUY") {{
+                data = [
+                    {{ time: 1, value: entryPrice - 20 }},
+                    {{ time: 2, value: entryPrice - 10 }},
+                    {{ time: 3, value: entryPrice }},
+                    {{ time: 4, value: entryPrice + 10 }},
+                    {{ time: 5, value: tp1Price }},
+                    {{ time: 6, value: tp2Price }}
+                ];
+            }} else {{
+                data = [
+                    {{ time: 1, value: 100 }},
+                    {{ time: 2, value: 100 }},
+                    {{ time: 3, value: 100 }}
+                ];
+            }}
 
             lineSeries.setData(data);
 
-            const entryLine = lineSeries.createPriceLine({{
-                price: {entry},
-                color: '#38bdf8',
-                lineWidth: 2,
-                lineStyle: 2,
-                axisLabelVisible: true,
-                title: 'ENTRY'
-            }});
+            if (tradeSide === "BUY" || tradeSide === "SELL") {{
+                lineSeries.setMarkers([
+                    {{
+                        time: 3,
+                        position: tradeSide === "BUY" ? "belowBar" : "aboveBar",
+                        color: tradeSide === "BUY" ? "#22c55e" : "#ef4444",
+                        shape: tradeSide === "BUY" ? "arrowUp" : "arrowDown",
+                        text: tradeSide + " ENTRY"
+                    }}
+                ]);
 
-            const slLine = lineSeries.createPriceLine({{
-                price: {sl},
-                color: '#ef4444',
-                lineWidth: 2,
-                lineStyle: 2,
-                axisLabelVisible: true,
-                title: 'SL'
-            }});
+                lineSeries.createPriceLine({{ price: entryPrice, color: '#38bdf8', lineWidth: 2, lineStyle: 2, axisLabelVisible: true, title: 'ENTRY' }});
+                lineSeries.createPriceLine({{ price: slPrice, color: '#ef4444', lineWidth: 2, lineStyle: 2, axisLabelVisible: true, title: 'SL' }});
+                lineSeries.createPriceLine({{ price: tp1Price, color: '#22c55e', lineWidth: 2, lineStyle: 2, axisLabelVisible: true, title: 'TP1' }});
+                lineSeries.createPriceLine({{ price: tp2Price, color: '#84cc16', lineWidth: 2, lineStyle: 2, axisLabelVisible: true, title: 'TP2' }});
+            }}
 
-            const tp1Line = lineSeries.createPriceLine({{
-                price: {tp1},
-                color: '#22c55e',
-                lineWidth: 2,
-                lineStyle: 2,
-                axisLabelVisible: true,
-                title: 'TP1'
-            }});
-
-            const tp2Line = lineSeries.createPriceLine({{
-                price: {tp2},
-                color: '#84cc16',
-                lineWidth: 2,
-                lineStyle: 2,
-                axisLabelVisible: true,
-                title: 'TP2'
-            }});
+            chart.timeScale().fitContent();
 
             window.addEventListener('resize', () => {{
                 chart.applyOptions({{ width: document.getElementById('chart').clientWidth }});
             }});
+
+            setTimeout(() => {{
+                window.location.reload();
+            }}, 5000);
         </script>
     </body>
     </html>
