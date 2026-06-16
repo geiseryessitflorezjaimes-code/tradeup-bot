@@ -5,6 +5,7 @@ from datetime import datetime
 
 app = FastAPI()
 trades = []
+signals = []
 
 SL_POINTS = 25
 TP1_POINTS = 20
@@ -16,7 +17,7 @@ def home():
     return {
         "status": "TradeUp Bot Online",
         "mode": "SIMULATION",
-        "version": "1.9",
+        "version": "1.9.1",
         "dashboard": "/dashboard"
     }
 
@@ -61,11 +62,24 @@ async def webhook(data: Dict):
     current_price = float(data.get("price", 0))
 
     if action == "UPDATE_PRICE":
+        if current_price <= 0:
+            return {
+                "success": False,
+                "message": "PRECIO INVALIDO",
+                "price": current_price
+            }
+
         updated = []
         for trade in trades:
             if trade["status"] == "OPEN" and trade["accepted"] == True:
                 updated.append(check_tp_sl(trade, current_price))
-        return {"success": True, "message": "PRECIO ACTUALIZADO", "price": current_price, "updated": updated}
+
+        return {
+            "success": True,
+            "message": "PRECIO ACTUALIZADO",
+            "price": current_price,
+            "updated": updated
+        }
 
     if action == "CLOSE":
         result = data.get("result", "PENDING")
@@ -90,12 +104,35 @@ async def webhook(data: Dict):
     retest = data.get("retest", False)
     fvg = data.get("fvg", False)
 
+    signal = {
+        "id": len(signals) + 1,
+        "time": now,
+        "symbol": symbol,
+        "side": side,
+        "score": score,
+        "price": entry,
+        "h1": h1,
+        "sweep": sweep,
+        "bos": bos,
+        "retest": retest,
+        "fvg": fvg
+    }
+    signals.append(signal)
+
+    if entry <= 0:
+        return {
+            "success": False,
+            "accepted": False,
+            "message": "SEÑAL IGNORADA: PRICE 0",
+            "signal": signal
+        }
+
     already_open = any(
         t["symbol"] == symbol and t["status"] == "OPEN" and t["accepted"] == True
         for t in trades
     )
 
-    accepted = score >= MIN_SCORE and side in ["BUY", "SELL"] and not already_open and entry > 0
+    accepted = score >= MIN_SCORE and side in ["BUY", "SELL"] and not already_open
 
     if side == "BUY":
         sl = entry - SL_POINTS
@@ -137,6 +174,10 @@ async def webhook(data: Dict):
 def get_trades():
     return {"total": len(trades), "trades": trades}
 
+@app.get("/signals")
+def get_signals():
+    return {"total": len(signals), "signals": signals}
+
 @app.get("/open_trades")
 def open_trades():
     open_list = [t for t in trades if t["status"] == "OPEN" and t["accepted"] == True]
@@ -144,7 +185,6 @@ def open_trades():
 
 @app.get("/stats")
 def stats():
-    total = len(trades)
     accepted = [t for t in trades if t["accepted"]]
     blocked = [t for t in trades if not t["accepted"]]
     closed = [t for t in accepted if t["status"] == "CLOSED"]
@@ -154,7 +194,8 @@ def stats():
     win_rate = round((len(wins) / len(closed)) * 100, 2) if closed else 0
 
     return {
-        "total_signals": total,
+        "total_signals": len(signals),
+        "total_trades": len(trades),
         "accepted_trades": len(accepted),
         "blocked_signals": len(blocked),
         "open_trades": len(open_list),
@@ -174,9 +215,31 @@ def dashboard():
     losses = [t for t in closed if t["result"] == "LOSS"]
     win_rate = round((len(wins) / len(closed)) * 100, 2) if closed else 0
 
-    rows = ""
-    markers = []
+    last_signal = signals[-1] if signals else None
+    last_trade = accepted[-1] if accepted else None
 
+    entry = last_trade["entry"] if last_trade else 0
+    sl = last_trade["sl"] if last_trade else 0
+    tp1 = last_trade["tp1"] if last_trade else 0
+    tp2 = last_trade["tp2"] if last_trade else 0
+    side = last_trade["side"] if last_trade else "WAIT"
+    score = last_trade["score"] if last_trade else 0
+    trade_result = last_trade["result"] if last_trade else "WAIT"
+    last_signal_side = last_signal["side"] if last_signal else "WAIT"
+    last_signal_score = last_signal["score"] if last_signal else 0
+
+    risk_pts = abs(entry - sl) if entry and sl else 0
+    tp1_pts = abs(tp1 - entry) if entry and tp1 else 0
+    tp2_pts = abs(tp2 - entry) if entry and tp2 else 0
+
+    status_bg = (
+        "#22c55e" if trade_result == "WIN"
+        else "#ef4444" if trade_result == "LOSS"
+        else "#f59e0b" if last_trade and last_trade["status"] == "OPEN"
+        else "#64748b"
+    )
+
+    rows = ""
     for t in trades[-20:]:
         status_color = "#22c55e" if t["result"] == "WIN" else "#ef4444" if t["result"] == "LOSS" else "#f59e0b" if t["status"] == "OPEN" else "#64748b"
         rows += f"""
@@ -193,29 +256,19 @@ def dashboard():
             <td style="color:{status_color};font-weight:bold;">{t['result']}</td>
         </tr>
         """
-        if t["accepted"]:
-            markers.append(t)
 
-    last_trade = markers[-1] if markers else None
-    entry = last_trade["entry"] if last_trade else 0
-    sl = last_trade["sl"] if last_trade else 0
-    tp1 = last_trade["tp1"] if last_trade else 0
-    tp2 = last_trade["tp2"] if last_trade else 0
-    side = last_trade["side"] if last_trade else "WAIT"
-    score = last_trade["score"] if last_trade else 0
-    trade_status = last_trade["result"] if last_trade else "WAIT"
-    trade_result = last_trade["result"] if last_trade else "WAIT"
-
-    risk_pts = abs(entry - sl) if entry and sl else 0
-    tp1_pts = abs(tp1 - entry) if entry and tp1 else 0
-    tp2_pts = abs(tp2 - entry) if entry and tp2 else 0
-
-    status_bg = (
-        "#22c55e" if trade_result == "WIN"
-        else "#ef4444" if trade_result == "LOSS"
-        else "#f59e0b" if last_trade and last_trade["status"] == "OPEN"
-        else "#64748b"
-    )
+    signal_rows = ""
+    for s in signals[-10:]:
+        signal_rows += f"""
+        <tr>
+            <td>{s['id']}</td>
+            <td>{s['symbol']}</td>
+            <td class="{s['side'].lower()}">{s['side']}</td>
+            <td>{s['score']}</td>
+            <td>{s['price']}</td>
+            <td>{s['time']}</td>
+        </tr>
+        """
 
     html = f"""
     <!DOCTYPE html>
@@ -334,21 +387,25 @@ def dashboard():
                 color:#ef4444;
                 font-weight:bold;
             }}
+            .section-title {{
+                margin:20px;
+                color:#38bdf8;
+            }}
         </style>
     </head>
     <body>
         <div class="header">
             <div class="title">TRADEUP DASHBOARD PRO</div>
-            <div class="mode">SIMULATION v1.9</div>
+            <div class="mode">SIMULATION v1.9.1</div>
         </div>
 
         <div class="cards">
-            <div class="card"><h3>Total</h3><p>{len(trades)}</p></div>
+            <div class="card"><h3>Señales</h3><p>{len(signals)}</p></div>
+            <div class="card"><h3>Trades</h3><p>{len(trades)}</p></div>
             <div class="card"><h3>Aceptadas</h3><p>{len(accepted)}</p></div>
             <div class="card"><h3>Abiertas</h3><p>{len(open_list)}</p></div>
             <div class="card"><h3>Cerradas</h3><p>{len(closed)}</p></div>
             <div class="card"><h3>Wins</h3><p>{len(wins)}</p></div>
-            <div class="card"><h3>Losses</h3><p>{len(losses)}</p></div>
             <div class="card"><h3>Win Rate</h3><p>{win_rate}%</p></div>
         </div>
 
@@ -361,13 +418,14 @@ def dashboard():
                     <p>🟢 <b>BOT ONLINE</b></p>
                     <p>📡 <b>WEBHOOK:</b> ACTIVO</p>
                     <p>🎯 <b>SCORE MÍNIMO:</b> {MIN_SCORE}</p>
-                    <p>📈 <b>ÚLTIMA SEÑAL:</b> {side}</p>
+                    <p>📈 <b>ÚLTIMA SEÑAL:</b> {last_signal_side}</p>
+                    <p>⭐ <b>SCORE SEÑAL:</b> {last_signal_score}/100</p>
                 </div>
 
-                <h2>Última operación</h2>
+                <h2>Último trade real</h2>
                 <p><b>Dirección:</b> {side}</p>
                 <p><b>Trade Score:</b> <span class="score">{score}/100</span></p>
-                <p><b>Trade Status:</b> <span class="badge" style="background:{status_bg};">{trade_status}</span></p>
+                <p><b>Trade Status:</b> <span class="badge" style="background:{status_bg};">{trade_result}</span></p>
                 <p><b>Entry:</b> {entry}</p>
                 <p><b>SL:</b> {sl}</p>
                 <p><b>TP1:</b> {tp1}</p>
@@ -392,15 +450,24 @@ def dashboard():
             </div>
         </div>
 
+        <h2 class="section-title">Historial de trades reales</h2>
         <table>
             <thead>
                 <tr>
                     <th>ID</th><th>Symbol</th><th>Side</th><th>Score</th><th>Entry</th><th>SL</th><th>TP1</th><th>TP2</th><th>Status</th><th>Result</th>
                 </tr>
             </thead>
-            <tbody>
-                {rows}
-            </tbody>
+            <tbody>{rows}</tbody>
+        </table>
+
+        <h2 class="section-title">Últimas señales recibidas</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th><th>Symbol</th><th>Side</th><th>Score</th><th>Price</th><th>Time</th>
+                </tr>
+            </thead>
+            <tbody>{signal_rows}</tbody>
         </table>
 
         <script>
