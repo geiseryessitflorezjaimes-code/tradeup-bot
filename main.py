@@ -186,23 +186,55 @@ def open_trades():
 @app.get("/stats")
 def stats():
     accepted = [t for t in trades if t["accepted"]]
-    blocked = [t for t in trades if not t["accepted"]]
-    closed = [t for t in accepted if t["status"] == "CLOSED"]
-    open_list = [t for t in accepted if t["status"] == "OPEN"]
+    real_trades = [t for t in accepted if t["entry"] > 0]
+    closed = [t for t in real_trades if t["status"] == "CLOSED"]
+    open_list = [t for t in real_trades if t["status"] == "OPEN"]
+
     wins = [t for t in closed if t["result"] == "WIN"]
     losses = [t for t in closed if t["result"] == "LOSS"]
+
     win_rate = round((len(wins) / len(closed)) * 100, 2) if closed else 0
 
+    gross_profit = len(wins) * TP1_POINTS
+    gross_loss = len(losses) * SL_POINTS
+    profit_factor = round(gross_profit / gross_loss, 2) if gross_loss > 0 else gross_profit
+
+    expectancy = round(
+        ((len(wins) * TP1_POINTS) - (len(losses) * SL_POINTS)) / len(closed),
+        2
+    ) if closed else 0
+
+    max_win_streak = 0
+    max_loss_streak = 0
+    current_win = 0
+    current_loss = 0
+
+    for t in closed:
+        if t["result"] == "WIN":
+            current_win += 1
+            current_loss = 0
+        elif t["result"] == "LOSS":
+            current_loss += 1
+            current_win = 0
+
+        max_win_streak = max(max_win_streak, current_win)
+        max_loss_streak = max(max_loss_streak, current_loss)
+
+    valid_signals = [s for s in signals if s["price"] > 0]
+
     return {
-        "total_signals": len(signals),
-        "total_trades": len(trades),
-        "accepted_trades": len(accepted),
-        "blocked_signals": len(blocked),
+        "total_signals": len(valid_signals),
+        "total_trades": len(real_trades),
+        "accepted_trades": len(real_trades),
         "open_trades": len(open_list),
         "closed_trades": len(closed),
         "wins": len(wins),
         "losses": len(losses),
         "win_rate": win_rate,
+        "profit_factor": profit_factor,
+        "expectancy": expectancy,
+        "max_win_streak": max_win_streak,
+        "max_loss_streak": max_loss_streak,
         "mode": "SIMULATION"
     }
 
@@ -214,7 +246,17 @@ def dashboard():
     wins = [t for t in closed if t["result"] == "WIN"]
     losses = [t for t in closed if t["result"] == "LOSS"]
     win_rate = round((len(wins) / len(closed)) * 100, 2) if closed else 0
+    real_trades = [t for t in accepted if t["entry"] > 0]
+    valid_signals = [s for s in signals if s["price"] > 0]
 
+    gross_profit = len(wins) * TP1_POINTS
+    gross_loss = len(losses) * SL_POINTS
+    profit_factor = round(gross_profit / gross_loss, 2) if gross_loss > 0 else gross_profit
+
+    expectancy = round(
+        ((len(wins) * TP1_POINTS) - (len(losses) * SL_POINTS)) / len(closed),
+        2
+    ) if closed else 0
     last_signal = signals[-1] if signals else None
     last_trade = accepted[-1] if accepted else None
 
@@ -399,15 +441,15 @@ def dashboard():
             <div class="mode">SIMULATION v1.9.1</div>
         </div>
 
-        <div class="cards">
-            <div class="card"><h3>Señales</h3><p>{len(signals)}</p></div>
-            <div class="card"><h3>Trades</h3><p>{len(trades)}</p></div>
-            <div class="card"><h3>Aceptadas</h3><p>{len(accepted)}</p></div>
-            <div class="card"><h3>Abiertas</h3><p>{len(open_list)}</p></div>
-            <div class="card"><h3>Cerradas</h3><p>{len(closed)}</p></div>
-            <div class="card"><h3>Wins</h3><p>{len(wins)}</p></div>
-            <div class="card"><h3>Win Rate</h3><p>{win_rate}%</p></div>
-        </div>
+     <div class="cards">
+    <div class="card"><h3>Señales</h3><p>{len(valid_signals)}</p></div>
+    <div class="card"><h3>Trades</h3><p>{len(real_trades)}</p></div>
+    <div class="card"><h3>Abiertas</h3><p>{len(open_list)}</p></div>
+    <div class="card"><h3>Cerradas</h3><p>{len(closed)}</p></div>
+    <div class="card"><h3>Wins</h3><p>{len(wins)}</p></div>
+    <div class="card"><h3>Profit Factor</h3><p>{profit_factor}</p></div>
+    <div class="card"><h3>Expectancy</h3><p>{expectancy}</p></div>
+</div>
 
         <div class="main">
             <div id="chart"></div>
